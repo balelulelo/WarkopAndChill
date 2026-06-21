@@ -1,30 +1,32 @@
-"""
-@file: network.py
+# ====================================================================================================
+# @file: network.py
 
-Handles connecting to the server, sending messages, and receiving responses.
+# Handles connecting to the server, sending messages, and receiving responses.
 
-"""
+# ====================================================================================================
 import socket
 import sys
+import threading
+import time
 # add parent directory so we can import from shared/protocol.py
 sys.path.append('..')
 from shared.protocol import encode, decode, BUFFER_SIZE
 
 class WarkopClient:
-    """
-        @brief: Initialize the client with a host and port. The default is localhost:3012.
-        @attr host: The IP address or hostname of the server to connect to (default 'localhost')
-        @attr port: The TCP port number of the server to connect to 
-        @attr client_socket: The TCP socket object that will be used to communicate with the server
-    """
+    # ====================================================================================================
+        # @brief: Initialize the client with a host and port. The default is localhost:3012.
+        # @attr host: The IP address or hostname of the server to connect to (default 'localhost')
+        # @attr port: The TCP port number of the server to connect to 
+        # @attr client_socket: The TCP socket object that will be used to communicate with the server
+    # ====================================================================================================
     def __init__(self, host: str = 'localhost', port: int = 3012):
         self.host = host
         self.port = port
         self.client_socket = None
 
-    """
-        @brief: Connect to the server by creating a socket and connecting to the specified host and port.
-    """
+    # ====================================================================================================
+        # @brief: Connect to the server by creating a socket and connecting to the specified host and port.
+    # ====================================================================================================
     def connect_to_server(self):
         try:
             # Create the socket and connect to the server. starts the TCP three-way handshake 
@@ -37,10 +39,9 @@ class WarkopClient:
             self.client_socket.connect((self.host, self.port))
             print(f"[CLIENT] Arrived at Warkop!")
        
-            # receive welcome message from server
-            welcome = self.receive_message()
-            if welcome:
-                print(welcome)
+            # start a thread to receive messages from the server in the background
+            recv_thread = threading.Thread(target=self.receive_loop, daemon=True)
+            recv_thread.start()
 
             # start the chat loop (this blocks until the user quits)
             self.main_chat_loop()
@@ -53,16 +54,37 @@ class WarkopClient:
         finally:
             self.disconnect()
 
-    """
-        @brief: the main interaction loop with the server. It will send a message to the server and wait for 
-        a response
+    # ====================================================================================================
+        # @brief: Continuously receive messages from the server in a background thread.
+        #         Handles ALL incoming data: welcome message, chat responses, broadcast events.
+    # ====================================================================================================
+    def receive_loop(self):
+        try:
+            while True:
+                data = self.client_socket.recv(BUFFER_SIZE)
+                if not data:
+                    print("\n[CLIENT] Server closed the connection.")
+                    break
+                message = decode(data)
+                print(f"{message}", end="")
+                # reprint the prompt after the message
+                print("You: ", end="", flush=True)  
+        except ConnectionResetError:
+            print("\n[CLIENT] Lost connection to server.")
+        except OSError:
+            # socket closed by disconnect(), expected on quit
+            pass
 
-    """
+    # ====================================================================================================
+        # @brief: the main interaction loop with the server. It will send a message to the server and wait for 
+        # a response
+
+    # ====================================================================================================
     def main_chat_loop(self):
         try:
             while True:
                 # input from user
-                message = input("You: ").strip()
+                message = input().strip()
                 # skip empty messages
                 if not message:
                     continue
@@ -70,36 +92,27 @@ class WarkopClient:
                 self.send_message(message)
                 # if the user types "quit", we break the loop and disconnect
                 if message.lower() == "quit":
-                    goodbye_message = self.receive_message()
-                    if goodbye_message:
-                        print(goodbye_message)
+                    time.sleep(0.5)
                     break
-                # wait for the server's response and print it
-                response = self.receive_message()
-                # no response means server closed the connection
-                if response is None:
-                    print("[CLIENT] Server disconnected.")
-                    break
-                print(response)
         # exit gracefully on Ctrl+C (SIGINT)
         except KeyboardInterrupt:
             print("\n[CLIENT] Leaving from warkop...")
 
-    """
-        @brief: Send a message to the server by encoding it to bytes and using the socket's send() method.
-        @param:
-            message: The string message to send to the server.
-    """
+    # ====================================================================================================
+    # @brief: Send a message to the server by encoding it to bytes and using the socket's send() method.
+    # @param:
+    #     message: The string message to send to the server.
+    # ====================================================================================================
     def send_message(self, message: str):
         # use sendall() to ensure the entire message is sent 
         # (even though size is not an issue for short chat messages)
         self.client_socket.sendall(encode(message))
 
-    """
-        @brief: Receive a message from the server by using the socket's recv() method and decoding 
-                the bytes to a string.
-        @return: The received message as a string, or None if the connection is closed.
-    """
+    # ====================================================================================================
+    # @brief: Receive a message from the server by using the socket's recv() method and decoding 
+    #         the bytes to a string.
+    # @return: The received message as a string, or None if the connection is closed.
+    # ====================================================================================================
     def receive_message(self) -> str | None:
         data = self.client_socket.recv(BUFFER_SIZE)
         # if recv() returns empty bytes, the connection is closed
@@ -107,10 +120,9 @@ class WarkopClient:
             return None
         return decode(data)
     
-    """
-        @brief: Close the client socket to disconnect from the server.
-    
-    """
+    # ====================================================================================================
+    # @brief: Close the client socket to disconnect from the server.
+    # ====================================================================================================
     def disconnect(self):
         if self.client_socket:
             self.client_socket.close()
