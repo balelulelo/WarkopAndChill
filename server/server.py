@@ -14,19 +14,22 @@ from shared.protocol import(
     MESSAGE_GIFT, MESSAGE_DONATE, MESSAGE_SUBSCRIBE, MESSAGE_LIKE
 )
 from session import ViewerSession
+from character_engine import CharacterEngine
+from broadcast_engine import BroadcastEngine
 
 # ================================================================================
 # @brief: A TCP server that listens for client connections.
 # ================================================================================
-class WarkopServer:
+class HarpyStreamServer:
     # ====================================================================================================
-    # @brief: Initialize the server with a host and port. The default is localhost:3012.
-    # @attr host: The IP address or hostname to bind to (default 'localhost')
-    # @attr port: The TCP port number to listen on 
-    # @attr server_socket: The TCP socket object that will listen for connections
-    # @attr connected_clients: A dictionary to keep track of connected clients (currently not used)
-    # @attr client_lock: A threading lock to protect access to the connected_clients 
-    #                    dictionary (currently not used)
+    # @brief: TCP server for harpy's live stream.
+    # @attr host: IP address to bind to
+    # @attr port: TCP port to listen on
+    # @attr server_socket: The main listening socket
+    # @attr connected_clients: Dict of {client_socket: ViewerSession}
+    # @attr client_lock: Threading lock protecting connected_clients
+    # @attr harpy: The character engine (harpy's brain)
+    # @attr broadcaster: The broadcast engine (harpy's auto-commentary)
     # ====================================================================================================
     def __init__(self, host: str = 'localhost', port: int = 3012):
         self.host = host
@@ -34,6 +37,12 @@ class WarkopServer:
         self.server_socket = None
         self.connected_clients = {}  
         self.client_lock = threading.Lock() 
+        # Load harpy's character from config
+        config_path = os.path.join(os.path.dirname(__file__), 'characters', 'harpy.json')
+        self.harpy = CharacterEngine(config_path)
+ 
+        # Broadcast engine — pass our broadcast_event method as the callback
+        self.broadcaster = BroadcastEngine(self.harpy, self.broadcast_event)
 
     # ====================================================================================================
     # @brief: Start the server by creating a socket, binding it, and listening for connections.
