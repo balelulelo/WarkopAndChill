@@ -1,15 +1,5 @@
 # ====================================================================================================
     # @file: server.py
-    
-    # This is the heart of the networking layer. Here's what it does:
-    
-    # 1. Creates a TCP socket
-    # 2. Binds it to a host and port (claims that address)
-    # 3. Listens for incoming connections
-    # 4. Accepts a client connection (blocks until someone connects)
-    # 5. Enters a loop: receive a message, echo it back
-    # 6. Cleans up when the client disconnects
-
 # ====================================================================================================
 import socket
 import sys
@@ -49,7 +39,7 @@ class WarkopServer:
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.server_socket.bind((self.host, self.port))
         self.server_socket.listen(5)
-        # set timeout for accept() to allow graceful shutdown 
+        # timeout to allow graceful chutdown
         self.server_socket.settimeout(1)  
 
         # some print messages to show that server is running:
@@ -90,7 +80,7 @@ class WarkopServer:
                 )
                 client_thread.start()
 
-                # count how much current active customers
+                # count how much current active customers (not really important actually, but why not)
                 with self.client_lock:
                     active_clients = len(self.connected_clients)
                 print(f"[SERVER] Currently serving {active_clients} customer(s)...\n")
@@ -144,12 +134,13 @@ class WarkopServer:
                 # print back the message to client
                 response = f"You said: {message}\n"
                 client_socket.send(encode(response))
-        # handle case where client crashed or forcefully closed their connection
+
         except ConnectionResetError:
             print(f"[SERVER] Connection with {client_address[0]}:{client_address[1]} was reset.\n")
     
         except Exception as e:
             print(f"[SERVER] An error with address {client_address[0]}:{client_address[1]} occurred: {e}\n")
+
         # always close client socket when done, whether normal exit or error
         finally:
             # remove this client from the connected_clients dictionary
@@ -160,7 +151,6 @@ class WarkopServer:
 
             client_socket.close()
             print(f"[SERVER] Connection with {client_address[0]}:{client_address[1]} closed.\n")
-            # notify others that a client has left
             self.broadcast_event(
                 f"[Warkop] A customer just left. We now have {remaining} customers in the warkop."
             )
