@@ -6,7 +6,12 @@ import sys
 import threading
 # add parent directory so we can import from shared/protocol.py
 sys.path.append('..')  
-from shared.protocol import encode, decode, BUFFER_SIZE
+from shared.protocol import(
+    send_message, receive_message, MESSAGE_NAMES, MESSAGE_WELCOME,
+    MESSAGE_SELECT, MESSAGE_SELECT_ACK, MESSAGE_CHAT, MESSAGE_REPLY,
+    MESSAGE_EVENT, MESSAGE_QUIT, MESSAGE_ERROR
+
+)
 
 # ================================================================================
 # @brief: A TCP server that listens for client connections.
@@ -62,10 +67,8 @@ class WarkopServer:
                 # while blocking so no other client enters before this one leaves
                     client_socket, client_address = self.server_socket.accept()
                 except socket.timeout:  
-                    # just loop back and wait for the next connection
                     continue  
                 except KeyboardInterrupt:
-                    # raise KeyboardInterrupt to break out of the outer loop and exit gracefully
                     raise
                 print(f"\n[SERVER] We got a Customer from {client_address[0]}:{client_address[1]}!\n")
 
@@ -75,7 +78,6 @@ class WarkopServer:
                 client_thread = threading.Thread(
                     target=self.handle_client, 
                     args=(client_socket, client_address),
-                    # make the thread a daemon so it exits when the main thread exits
                     daemon=True  
                 )
                 client_thread.start()
@@ -104,36 +106,56 @@ class WarkopServer:
             current_clients = len(self.connected_clients)
         
         try:
-            welcome_message = (
-                f"Welcome to our Warkop! You are customer number {current_clients}.\n"
-                f"What can we help you with today?\n"
-                f"Type 'quit' to leave the warkop.\n"
-            )
-            client_socket.send(encode(welcome_message))
+            send_message(client_socket, MESSAGE_WELCOME, {
+                "message": (
+                    f"Welcome to our Warkop! You are customer number {current_clients}.\n"
+                    f"What can we help you with today?\n"
+                    f"Type 'quit' to leave the warkop.\n"
+                )
+            })
             # notify others a new client has joined
             self.broadcast_event(
                 f"[Warkop] A new customer just walked in! We now have {current_clients} customers in the warkop.",
                 exclude=client_socket
             )
             while True:
-                data = client_socket.recv(BUFFER_SIZE)
-                if not data:
-                    # no data means the client closed the connection
-                    print(f"[SERVER] Customer from {client_address[0]}:{client_address[1]} has left.")
-                    break
-                # decode raw bytes to string
-                message = decode(data).strip()
-                print(f"[SERVER] Received from {client_address[0]}:{client_address[1]}: {message}\n")
+                # Receive a framed message — returns (type, dict) or (None, None)
+                message_type, payload = receive_message(client_socket)
 
-                # break the loop and close connection if client types 'quit'
-                if message.lower() == 'quit':
-                    goodbye_message = "Thank you for visiting! See you next time!\n"
-                    client_socket.send(encode(goodbye_message))
-                    print(f"[SERVER] Customer from {client_address[0]}:{client_address[1]} has left.\n")
+                if message_type is None:
+                    print(f"[SERVER] Customer {client_address[0]}:{client_address[1]} has left.")
                     break
-                # print back the message to client
-                response = f"You said: {message}\n"
-                client_socket.send(encode(response))
+
+                # human readable log
+                readable_type = MESSAGE_NAMES.get(message_type, f"UNKNOWN({message_type})")
+                print(f"[SERVER] [{readable_type}] from {client_address[0]}:{client_address[1]}: {payload}\n")
+
+                # 1. if message type is quit
+                if message_type == MESSAGE_QUIT:
+                    send_message(client_socket, MESSAGE_REPLY, {
+                        "message": "Thank you for visiting! See you next time!"
+                    })
+                    print(f"[SERVER] Customer {client_address[0]}:{client_address[1]} said goodbye.\n")
+                    break
+                # 2. if message type is chat
+                elif message_type == MESSAGE_CHAT:
+                    # i'll route this to the actual characters later. placeholder
+                    user_message = payload.get("message", "")
+                    send_message(client_socket, MESSAGE_REPLY, {
+                        "message": f"You said: {user_message}"
+                    })
+                # 3. if message type is select
+                elif message_type == MESSAGE_SELECT:
+                    # Phase 4 will handle character selection
+                    selected_character = payload.get("character", "unknown")
+                    send_message(client_socket, MESSAGE_SELECT_ACK, {
+                        "message": f"You selected {selected_character}. (Character engine coming in Phase 4!)"
+                    })
+                # 4. other than that, it's unknown
+                else:
+                    send_message(client_socket, MESSAGE_ERROR, {
+                        "message": f"Unknown message type: {readable_type}"
+                    })
 
         except ConnectionResetError:
             print(f"[SERVER] Connection with {client_address[0]}:{client_address[1]} was reset.\n")
@@ -143,16 +165,17 @@ class WarkopServer:
 
         # always close client socket when done, whether normal exit or error
         finally:
-            # remove this client from the connected_clients dictionary
+            # remove this client from the dictionary
             with self.client_lock:
                 if client_socket in self.connected_clients:
                     del self.connected_clients[client_socket]
-                remaining = len(self.connected_clients)
+                remaining_clients = len(self.connected_clients)
 
             client_socket.close()
             print(f"[SERVER] Connection with {client_address[0]}:{client_address[1]} closed.\n")
+
             self.broadcast_event(
-                f"[Warkop] A customer just left. We now have {remaining} customers in the warkop."
+                f"A customer just left. We now have {remaining_clients} customers in the warkop."
             )
     
     # ====================================================================================================
@@ -170,6 +193,6 @@ class WarkopServer:
         for client_socket in clients_copy:
             if client_socket != exclude:
                 try:
-                    client_socket.send(encode(message + "\n"))
+                    send_message(client_socket, MESSAGE_EVENT, {"message": message})
                 except Exception as e:
                     pass
