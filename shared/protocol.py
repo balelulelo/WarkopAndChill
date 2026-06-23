@@ -31,7 +31,7 @@ MESSAGE_DONATE = 0x0A
 MESSAGE_SUBSCRIBE = 0x0B
 MESSAGE_LIKE = 0x0C
 
-MESSAGE_TYPE_NAMES = {
+MESSAGE_NAMES = {
     MESSAGE_WELCOME:  "WELCOME",
     MESSAGE_USERNAME: "USERNAME",
     MESSAGE_USERNAME_ACK: "USERNAME_ACK",
@@ -71,9 +71,9 @@ def send_message(target_socket: socket.socket, message_type: int, payload: dict)
 #   Exactly num_bytes bytes, or None if the connection closed before completing
 # ====================================================================================================
 
-def receive_exact(socket: socket.socket, num_bytes: int) -> bytes | None:
-    data_accumulated = b''
-    while len(data_accumulated) < num_bytes:
+def receive_exact(source_socket: socket.socket, num_bytes: int) -> bytes | None:
+    accumulated_data = b''
+    while len(accumulated_data) < num_bytes:
         remaining_bytes = num_bytes - len(accumulated_data)
         chunk = source_socket.recv(remaining_bytes)
         if not chunk:

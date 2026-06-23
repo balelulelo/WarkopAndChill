@@ -106,40 +106,40 @@ class HarpyStreamClient:
     #         Handles ALL incoming data: welcome message, chat responses, broadcast events.
     # ====================================================================================================
     def receive_loop(self):
-        try:
-            while True:
-                message_type, payload = receive_message(self.client_socket)
-                # (None, None) = connection closed
-                if message_type is None:
-                    print("\n[CLIENT] Harpy ended the stream.")
-                    break
- 
-                sender = payload.get("sender", "")
-                message_content = payload.get("message", "")
-                mood = payload.get("mood", "")
- 
-                if message_type == MESSAGE_REPLY:
-                    mood_display = f" [{mood}]" if mood else ""
-                    print(f"\n  {sender}{mood_display}: {message_content}")
+            try:
+                while True:
+                    message_type, payload = receive_message(self.client_socket)
 
-                elif message_type == MESSAGE_EVENT:
-                    print(f"\n  {message_content}")
- 
-                elif message_type == MESSAGE_ERROR:
-                    print(f"\n  {message_content}")
- 
-                else:
-                    readable_type = MESSAGE_NAMES.get(message_type, "UNKNOWN")
-                    print(f"\n  [{readable_type}] {message_content}")
- 
-                # reprint prompt
-                print(f"  {self.username}: ", end="", flush=True)
- 
-        except ConnectionResetError:
-            print("\n[CLIENT] Lost connection to the stream.")
-        except OSError:
-            # socket closed by disconnect(), expected on quit
-            pass
+                    if message_type is None:
+                        print("\n[CLIENT] Stream ended.")
+                        break
+
+                    message_content = payload.get("message", "")
+
+                    if message_type == MESSAGE_REPLY:
+                        print(f"\n  {message_content}")
+
+                    elif message_type == MESSAGE_USERNAME_ACK:
+                        sender = payload.get("sender", "Harpy")
+                        print(f"\n  {sender}: {message_content}")
+
+                    elif message_type == MESSAGE_EVENT:
+                        print(f"\n  {message_content}")
+
+                    elif message_type == MESSAGE_ERROR:
+                        print(f"\n  [ERROR] {message_content}")
+
+                    else:
+                        readable_type = MESSAGE_NAMES.get(message_type, "UNKNOWN")
+                        print(f"\n  [{readable_type}] {message_content}")
+
+                    # reprint prompt
+                    print(f"  {self.username}: ", end="", flush=True)
+
+            except ConnectionResetError:
+                print("\n[CLIENT] Lost connection to stream.")
+            except OSError:
+                pass
 
     # ====================================================================================================
     #   @brief: the main interaction loop with the server. It will send a message to the server and wait for 

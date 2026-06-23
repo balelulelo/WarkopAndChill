@@ -9,7 +9,7 @@ import os
 sys.path.append('..')  
 from shared.protocol import(
     send_message, receive_message, MESSAGE_NAMES, MESSAGE_WELCOME,
-    MESSAGE_SELECT, MESSAGE_SELECT_ACK, MESSAGE_CHAT, MESSAGE_REPLY,
+    MESSAGE_USERNAME, MESSAGE_USERNAME_ACK, MESSAGE_CHAT, MESSAGE_REPLY,
     MESSAGE_EVENT, MESSAGE_QUIT, MESSAGE_ERROR,
     MESSAGE_GIFT, MESSAGE_DONATE, MESSAGE_SUBSCRIBE, MESSAGE_LIKE
 )
@@ -105,154 +105,123 @@ class HarpyStreamServer:
     # ====================================================================================================
 
     def handle_client(self, client_socket: socket.socket, client_address: tuple):
-        viewer_session = ViewerSession()
-        # add this client to the connected_clients dictionary 
-        with self.client_lock:
-            self.connected_clients[client_socket] = viewer_session
-            current_clients = len(self.connected_clients)
-        
-        try:
-            # 1: Ask for username
-            send_message(client_socket, MESSAGE_WELCOME, {
-                "message": f"Welcome to {self.harpy.name}'s stream! Please enter your username to join the chat.",
-                "stream_title": self.harpy.character_data.get("stream_title", "")
-            })
- 
-            # 2: Wait for username
-            message_type, payload = receive_message(client_socket)
-            if message_type is None:
-                return
- 
-            if message_type == MESSAGE_USERNAME:
-                viewer_session.username = payload.get("username", "anonymous")
-                send_message(client_socket, MESSAGE_USERNAME_ACK, {
-                    "message": self.harpy.generate_welcome(viewer_session.username),
-                    "username": viewer_session.username
+            viewer_session = ViewerSession()
+            with self.client_lock:
+                self.connected_clients[client_socket] = viewer_session
+                current_clients = len(self.connected_clients)
+            
+            try:
+                # 1: ask for username
+                send_message(client_socket, MESSAGE_WELCOME, {
+                    "message": f"Welcome to {self.harpy.name}'s stream! Please enter your username to join the chat.",
+                    "stream_title": self.harpy.character_data.get("stream_title", "")
                 })
- 
-                # Announce to other viewers
-                with self.client_lock:
-                    viewer_count = len(self.connected_clients)
-                self.broadcast_event(
-                    f"{viewer_session.username} joined the stream! ({viewer_count} viewers)",
-                    exclude=client_socket
-                )
-                print(f"[SERVER] Viewer '{viewer_session.username}' joined from {client_address[0]}:{client_address[1]}")
-            else:
-                send_message(client_socket, MESSAGE_ERROR, {
-                    "message": "Please set a username first!"
-                })
-                return
- 
-            # 3: Main interaction loop
-            while True:
+    
+                # 2: wait for username
                 message_type, payload = receive_message(client_socket)
- 
                 if message_type is None:
-                    print(f"[SERVER] Viewer '{viewer_session.username}' disconnected.")
-                    break
- 
-                readable_type = MESSAGE_NAMES.get(message_type, f"UNKNOWN({message_type})")
-                print(f"[SERVER] [{readable_type}] {viewer_session.username}: {payload}")
-                self.broadcaster.pause_briefly(3.0)
- 
-                if message_type == MESSAGE_QUIT:
-                    goodbye = self.harpy.generate_goodbye(viewer_session.username)
-                    send_message(client_socket, MESSAGE_REPLY, {
-                        "sender": self.harpy.name,
-                        "message": goodbye
+                    return
+    
+                if message_type == MESSAGE_USERNAME:
+                    viewer_session.username = payload.get("username", "anonymous")
+                    send_message(client_socket, MESSAGE_USERNAME_ACK, {
+                        "message": self.harpy.generate_welcome(viewer_session.username),
+                        "username": viewer_session.username
                     })
-                    break
- 
-                elif message_type == MESSAGE_CHAT:
-                    viewer_session.record_interaction()
-                    user_message = payload.get("message", "")
-                    response = self.harpy.respond_to_chat(viewer_session.username, user_message)
-                    send_message(client_socket, MESSAGE_REPLY, {
-                        "sender": self.harpy.name,
-                        "message": response,
-                        "mood": self.harpy.current_mood
-                    })
- 
-                elif message_type == MESSAGE_GIFT:
-                    amount = payload.get("amount", 0)
-                    viewer_session.record_gift()
-                    response = self.harpy.respond_to_gift(viewer_session.username, amount)
-                    # announce to all viewers that someone sent harpy a gift
+                    with self.client_lock:
+                        viewer_count = len(self.connected_clients)
                     self.broadcast_event(
-                        f"{viewer_session.username} sent a gift worth {amount}!"
+                        f"{viewer_session.username} joined the stream! ({viewer_count} viewers)",
+                        exclude=client_socket
                     )
-                    send_message(client_socket, MESSAGE_REPLY, {
-                        "sender": self.harpy.name,
-                        "message": response,
-                        "mood": self.harpy.current_mood
-                    })
- 
-                elif message_type == MESSAGE_DONATE:
-                    amount = payload.get("amount", 0)
-                    donate_message = payload.get("message", "")
-                    viewer_session.record_donation(amount)
-                    response = self.harpy.respond_to_donate(
-                        viewer_session.username, donate_message, amount
-                    )
-                    # donation announcement to everyone
-                    self.broadcast_event(
-                        f"{viewer_session.username} donated {amount}! \"{donate_message}\""
-                    )
-                    send_message(client_socket, MESSAGE_REPLY, {
-                        "sender": self.harpy.name,
-                        "message": response,
-                        "mood": self.harpy.current_mood
-                    })
- 
-                elif message_type == MESSAGE_SUBSCRIBE:
-                    viewer_session.record_subscribe()
-                    response = self.harpy.respond_to_subscribe(viewer_session.username)
-                    # subscribe announcement to everyone
-                    self.broadcast_event(
-                        f"{viewer_session.username} just subscribed!"
-                    )
-                    send_message(client_socket, MESSAGE_REPLY, {
-                        "sender": self.harpy.name,
-                        "message": response,
-                        "mood": self.harpy.current_mood
-                    })
- 
-                elif message_type == MESSAGE_LIKE:
-                    viewer_session.record_like()
-                    response = self.harpy.respond_to_like(viewer_session.username)
-                    if response is not None:
-                        send_message(client_socket, MESSAGE_REPLY, {
-                            "sender": self.harpy.name,
-                            "message": response,
-                            "mood": self.harpy.current_mood
-                        })
-                    # If response is None, harpy didn't notice
+                    print(f"[SERVER] Viewer '{viewer_session.username}' joined from {client_address[0]}:{client_address[1]}")
                 else:
                     send_message(client_socket, MESSAGE_ERROR, {
-                        "message": f"Unknown interaction type: {readable_type}"
+                        "message": "Please set a username first!"
                     })
+                    return
+    
+                # 3: main interaction loop
+                while True:
+                    message_type, payload = receive_message(client_socket)
+    
+                    if message_type is None:
+                        print(f"[SERVER] Viewer '{viewer_session.username}' disconnected.")
+                        break
+    
+                    readable_type = MESSAGE_NAMES.get(message_type, f"UNKNOWN({message_type})")
+                    print(f"[SERVER] [{readable_type}] {viewer_session.username}: {payload}")
+                    self.broadcaster.pause_briefly(3.0)
+    
+                    if message_type == MESSAGE_QUIT:
+                        goodbye = self.harpy.generate_goodbye(viewer_session.username)
+                        self.broadcast_event(f"{self.harpy.name}: {goodbye}")
+                        break
+    
+                    elif message_type == MESSAGE_CHAT:
+                        viewer_session.record_interaction()
+                        user_message = payload.get("message", "")
+                        response = self.harpy.respond_to_chat(viewer_session.username, user_message)
+                        # broadcast viewer's message to everyone
+                        self.broadcast_event(f"{viewer_session.username}: {user_message}")
+                        # broadcast Harpy's reply to everyone
+                        self.broadcast_event(f"{self.harpy.name}: {response}")
+    
+                    elif message_type == MESSAGE_GIFT:
+                        amount = payload.get("amount", 0)
+                        viewer_session.record_gift()
+                        response = self.harpy.respond_to_gift(viewer_session.username, amount)
+                        self.broadcast_event(f"🎁 {viewer_session.username} sent a gift worth {amount}!")
+                        self.broadcast_event(f"{self.harpy.name}: {response}")
+    
+                    elif message_type == MESSAGE_DONATE:
+                        amount = payload.get("amount", 0)
+                        donate_message = payload.get("message", "")
+                        viewer_session.record_donation(amount)
+                        response = self.harpy.respond_to_donate(
+                            viewer_session.username, donate_message, amount
+                        )
+                        self.broadcast_event(f"💰 {viewer_session.username} donated {amount}! \"{donate_message}\"")
+                        self.broadcast_event(f"{self.harpy.name}: {response}")
+    
+                    elif message_type == MESSAGE_SUBSCRIBE:
+                        viewer_session.record_subscribe()
+                        response = self.harpy.respond_to_subscribe(viewer_session.username)
+                        self.broadcast_event(f"⭐ {viewer_session.username} just subscribed!")
+                        self.broadcast_event(f"{self.harpy.name}: {response}")
+    
+                    elif message_type == MESSAGE_LIKE:
+                        viewer_session.record_like()
+                        response = self.harpy.respond_to_like(viewer_session.username)
+                        if response is not None:
+                            self.broadcast_event(f"❤️ {viewer_session.username} liked the stream!")
+                            self.broadcast_event(f"{self.harpy.name}: {response}")
+                        # None = Harpy didn't notice, nothing broadcast
+                    else:
+                        send_message(client_socket, MESSAGE_ERROR, {
+                            "message": f"Unknown interaction type: {readable_type}"
+                        })
 
-        except ConnectionResetError:
-            username = viewer_session.username or "unknown"
-            print(f"[SERVER] Connection with viewer '{username}' was reset.")
-        except Exception as error:
-            username = viewer_session.username or "unknown"
-            print(f"[SERVER] Error with viewer '{username}': {error}")
-        finally:
-            with self.client_lock:
-                if client_socket in self.connected_clients:
-                    del self.connected_clients[client_socket]
-                remaining_viewers = len(self.connected_clients)
- 
-            client_socket.close()
-            username = viewer_session.username or "unknown"
-            print(f"[SERVER] Viewer '{username}' disconnected. Viewers: {remaining_viewers}")
- 
-            if viewer_session.has_username():
-                self.broadcast_event(
-                    f"{viewer_session.username} left the stream. ({remaining_viewers} viewers)"
-                )
+            except ConnectionResetError:
+                username = viewer_session.username or "unknown"
+                print(f"[SERVER] Connection with viewer '{username}' was reset.")
+            except Exception as error:
+                username = viewer_session.username or "unknown"
+                print(f"[SERVER] Error with viewer '{username}': {error}")
+            finally:
+                with self.client_lock:
+                    if client_socket in self.connected_clients:
+                        del self.connected_clients[client_socket]
+                    remaining_viewers = len(self.connected_clients)
+    
+                client_socket.close()
+                username = viewer_session.username or "unknown"
+                print(f"[SERVER] Viewer '{username}' disconnected. Viewers: {remaining_viewers}")
+    
+                if viewer_session.has_username():
+                    self.broadcast_event(
+                        f"{viewer_session.username} left the stream. ({remaining_viewers} viewers)"
+                    )
     
     # ====================================================================================================
     # @brief: Broadcast a message to all connected clients, optionally excluding one client.

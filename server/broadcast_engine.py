@@ -20,7 +20,7 @@ class BroadcastEngine:
     def __init__(self, character_engine, broadcast_callback):
         self.character_engine = character_engine
         self.broadcast_callback = broadcast_callback
-        min_interval, max_interval = character_engine.get_broadcast_interval
+        min_interval, max_interval = character_engine.get_broadcast_interval()
         self.min_interval = min_interval
         self.max_interval = max_interval
 
